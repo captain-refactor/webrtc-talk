@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<video id="video" controls></video>
+<audio id="audio" controls></audio>
+<script>
+    async function connect() {
+        let conn = new RTCPeerConnection({
+            iceServers: [{urls: "stun:stun.l.google.com:19302"}]
+        });
+        let media = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+        conn.addTrack(media.getVideoTracks()[0]);
+        conn.addTrack(media.getAudioTracks()[0]);
+        conn.ontrack = event => {
+            console.log(event);
+            if (event.track.kind === "video") {
+                let element = document.getElementById('video');
+                element.srcObject = event.streams[0];
+            } else if (event.track.kind === "audio") {
+                let element = document.getElementById('audio');
+                element.srcObject = event.streams[0];
+            }
+        };
+
+        let offer = await conn.createOffer({offerToReceiveAudio: true, offerToReceiveVideo: true});
+        await conn.setLocalDescription(offer);
+        let response = await fetch("/connect", {
+            body: JSON.stringify({offer}),
+            method: 'POST'
+        });
+        let body = await response.json();
+        await conn.setRemoteDescription(body.answer);
+    }
+
+    connect()
+</script>
+</body>
+</html>
