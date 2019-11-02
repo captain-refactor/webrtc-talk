@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v2"
 	"github.com/pion/webrtc/v2/pkg/media"
 	"io"
@@ -77,7 +78,26 @@ func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDe
 			go io.Copy(audioTrack, track)
 		}
 		if track.Kind() == webrtc.RTPCodecTypeVideo {
-			go io.Copy(videoTrack, track)
+			errSend := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: track.SSRC()}})
+			if errSend != nil {
+				fmt.Println(errSend)
+			}
+			fmt.Printf("Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().Name)
+			for {
+				// Read RTP packets being sent to Pion
+				rtp, readErr := track.ReadRTP()
+				if readErr != nil {
+					panic(readErr)
+				}
+
+				// Replace the SSRC with the SSRC of the outbound track.
+				// The only change we are making replacing the SSRC, the RTP packets are unchanged otherwise
+				rtp.SSRC = videoTrack.SSRC()
+
+				if writeErr := videoTrack.WriteRTP(rtp); writeErr != nil {
+					panic(writeErr)
+				}
+			}
 		}
 	})
 
@@ -99,6 +119,13 @@ func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDe
 
 	b.connections[connection] = connection
 	return answer, nil
+}
+
+type debugger struct {
+}
+
+func (d *debugger) Write(p []byte) (n int, err error) {
+	return len(p), nil
 }
 
 func (b *Broadcaster) broadcastVideo(frame []byte) {
