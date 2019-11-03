@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<p>This application capture audio and video and sends it to server. Server returs everything back. You see received
+    media.</p>
+<video id="video" controls autoplay></video>
+<script>
+    async function connect() {
+        let conn = new RTCPeerConnection({
+            iceServers: [{urls: "stun:stun.l.google.com:19302"}]
+        });
+
+        let stream = new MediaStream();
+        document.getElementById('video').srcObject = stream;
+        conn.ontrack = event => {
+            stream.addTrack(event.track);
+        };
+        let offer = await conn.createOffer({offerToReceiveAudio: true, offerToReceiveVideo: true});
+        await conn.setLocalDescription(offer);
+        let response = await fetch("/connect", {
+            body: JSON.stringify({offer}),
+            method: 'POST'
+        });
+        let body = await response.json();
+        await conn.setRemoteDescription(body.answer);
+    }
+
+    connect()
+</script>
+</body>
+</html>

@@ -15,13 +15,13 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		b := NewBroadcaster()
-		_, err = writer.Write(b.acceptOffer(offer))
+		player := NewPlayer()
+		_, err = writer.Write(player.AcceptOffer(offer))
 		if err != nil {
 			panic(err)
 		}
 	})
-	router.Handle("/", http.FileServer(http.Dir("public")))
+	router.Handle("/", http.FileServer(http.Dir("media-player/public")))
 	http.Handle("/", router)
 	log.Fatalln(http.ListenAndServe(":4321", nil))
 }

@@ -3,23 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	webrtc_talk "github.com/captain-refactor/webrtc-talk"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v2"
-	"github.com/pion/webrtc/v2/pkg/media"
 	"io"
-	"sync"
 )
 
 type Broadcaster struct {
-	connections map[*connection]*connection
 }
 
 func NewBroadcaster() *Broadcaster {
-	return &Broadcaster{make(map[*connection]*connection)}
-}
-
-func (b *Broadcaster) removeConnection(conn *connection) {
-	delete(b.connections, conn)
+	return &Broadcaster{}
 }
 
 func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
@@ -28,7 +22,7 @@ func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDe
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(*mediaEngine))
 	peerConnection, err := api.NewPeerConnection(webrtc.Configuration{
-		ICEServers: iceServers,
+		ICEServers: webrtc_talk.IceServers,
 	})
 	if err != nil {
 		panic(err)
@@ -54,7 +48,6 @@ func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDe
 		panic(err)
 	}
 
-	connection := newConnection(peerConnection, videoTrack, audioTrack)
 	// Set the handler for ICE connection state
 	// This will notify you when the peer has connected/disconnected
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
@@ -67,7 +60,6 @@ func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDe
 		case webrtc.PeerConnectionStateDisconnected,
 			webrtc.PeerConnectionStateFailed,
 			webrtc.PeerConnectionStateClosed:
-			b.removeConnection(connection)
 			break
 		}
 	})
@@ -117,38 +109,7 @@ func (b *Broadcaster) Connect(offer webrtc.SessionDescription) (webrtc.SessionDe
 		panic(err)
 	}
 
-	b.connections[connection] = connection
 	return answer, nil
-}
-
-type debugger struct {
-}
-
-func (d *debugger) Write(p []byte) (n int, err error) {
-	return len(p), nil
-}
-
-func (b *Broadcaster) broadcastVideo(frame []byte) {
-	for _, conn := range b.connections {
-		if conn.isActive() {
-			_, err := conn.WriteVideo(frame)
-			if err != nil {
-				println("During writing video to connection, error occured: ", err.Error())
-			}
-
-		}
-	}
-}
-
-func (b *Broadcaster) broadcastAudio(frame []byte) {
-	for _, conn := range b.connections {
-		if conn.isActive() {
-			_, err := conn.WriteAudio(frame)
-			if err != nil {
-				println("During writing audio to connection, error occured: ", err.Error())
-			}
-		}
-	}
 }
 
 type acceptOfferPayload struct {
@@ -175,42 +136,4 @@ func (b *Broadcaster) acceptOffer(offer []byte) []byte {
 		panic(err)
 	}
 	return response
-}
-
-type connection struct {
-	peerConnection *webrtc.PeerConnection
-	videoTrack     *webrtc.Track
-	audioTrack     *webrtc.Track
-	audioMutex     *sync.Mutex
-}
-
-func newConnection(peerConnection *webrtc.PeerConnection, videoTrack *webrtc.Track, audioTrack *webrtc.Track) *connection {
-	return &connection{peerConnection: peerConnection, videoTrack: videoTrack, audioTrack: audioTrack, audioMutex: &sync.Mutex{}}
-}
-
-func (c *connection) isActive() bool {
-	return c.peerConnection.ConnectionState() == webrtc.PeerConnectionStateConnected
-}
-
-func (c *connection) WriteVideo(frame []byte) (n int, err error) {
-	err = c.videoTrack.WriteSample(media.Sample{Data: frame, Samples: 90000})
-	if err != nil {
-		return 0, err
-	}
-	return len(frame), nil
-}
-func (c *connection) WriteAudio(frame []byte) (n int, err error) {
-	c.audioMutex.Lock()
-	err = c.audioTrack.WriteSample(media.Sample{Data: frame, Samples: 48000})
-	c.audioMutex.Unlock()
-	if err != nil {
-		return 0, err
-	}
-	return len(frame), nil
-}
-
-var iceServers = []webrtc.ICEServer{
-	{
-		URLs: []string{"stun:stun.l.google.com:19302"},
-	},
 }
