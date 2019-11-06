@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/3d0c/gmf"
 	"github.com/captain-refactor/webrtc-talk"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v2"
 	"github.com/pion/webrtc/v2/pkg/media"
 	"io"
@@ -21,7 +22,14 @@ func NewPlayer() *Player {
 func (p Player) Connect(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
 
 	mediaEngine := &webrtc.MediaEngine{}
-	mediaEngine.RegisterDefaultCodecs()
+	mediaEngine.RegisterCodec(webrtc.NewRTPVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000))
+	mediaEngine.RegisterCodec(webrtc.NewRTPCodec(webrtc.RTPCodecTypeAudio,
+		webrtc.Opus,
+		48000,
+		2, //According to RFC7587, Opus RTP streams must have exactly 2 channels.
+		"ptime=20",
+		webrtc.DefaultPayloadTypeOpus,
+		&codecs.OpusPayloader{}))
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(*mediaEngine))
 	peerConnection, err := api.NewPeerConnection(webrtc.Configuration{
@@ -53,35 +61,6 @@ func (p Player) Connect(offer webrtc.SessionDescription) (webrtc.SessionDescript
 	}
 	sendAudio := audioSender(audioTrack)
 
-	broadcastMedia := func() {
-		input, err := gmf.NewInputCtx("media-player/sample.mkv")
-		if err != nil {
-			panic(err)
-		}
-		defer input.Close()
-		videoStream := getVideoStream(input)
-		audioStream := getAudioStream(input)
-		for {
-			pkt, err := input.GetNextPacket()
-			if err != nil {
-				if err != io.EOF {
-					panic(err)
-				}
-				println("End of file")
-				return
-			}
-
-			switch pkt.StreamIndex() {
-			case videoStream.Index():
-				sendVideo(pkt)
-				break
-			case audioStream.Index():
-				sendAudio(pkt)
-				break
-			}
-		}
-	}
-
 	// Set the handler for ICE connection state
 	// This will notify you when the peer has connected/disconnected
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
@@ -96,7 +75,7 @@ func (p Player) Connect(offer webrtc.SessionDescription) (webrtc.SessionDescript
 			webrtc.PeerConnectionStateClosed:
 			break
 		case webrtc.PeerConnectionStateConnected:
-			go broadcastMedia()
+			go broadcastLoop(sendVideo, sendAudio)
 			break
 		}
 	})
@@ -198,10 +177,48 @@ func audioSender(audioTrack *webrtc.Track) func(*gmf.Packet) {
 			if err != nil {
 				panic(err)
 			}
-			time.Sleep(time.Millisecond * time.Duration(pkt.Duration()))
+			duration := pkt.Duration()
+			time.Sleep(time.Millisecond * time.Duration(duration))
 		}
 	}()
 	return func(pkt *gmf.Packet) {
 		packets <- pkt
+	}
+}
+
+func broadcastLoop(sendVideo, sendAudio func(*gmf.Packet)) {
+	for {
+		broadcastMedia(sendVideo, sendAudio)
+	}
+}
+
+func broadcastMedia(sendVideo, sendAudio func(*gmf.Packet)) {
+	filename := "media-player/sample.mkv"
+	println("playing", filename)
+	input, err := gmf.NewInputCtx(filename)
+	if err != nil {
+		panic(err)
+	}
+	defer input.Close()
+	videoStream := getVideoStream(input)
+	audioStream := getAudioStream(input)
+	for {
+		pkt, err := input.GetNextPacket()
+		if err != nil {
+			if err != io.EOF {
+				panic(err)
+			}
+			println("End of file")
+			return
+		}
+
+		switch pkt.StreamIndex() {
+		case videoStream.Index():
+			sendVideo(pkt)
+			break
+		case audioStream.Index():
+			sendAudio(pkt)
+			break
+		}
 	}
 }
