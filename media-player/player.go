@@ -125,32 +125,6 @@ type acceptOfferAnswer struct {
 	Success bool                      `json:"success"`
 }
 
-func getVideoStream(ctx *gmf.FmtCtx) *gmf.Stream {
-	for i := 0; i < ctx.StreamsCnt(); i++ {
-		stream, err := ctx.GetStream(i)
-		if err != nil {
-			panic(err)
-		}
-		if stream.IsVideo() {
-			return stream
-		}
-	}
-	return nil
-}
-
-func getAudioStream(ctx *gmf.FmtCtx) *gmf.Stream {
-	for i := 0; i < ctx.StreamsCnt(); i++ {
-		stream, err := ctx.GetStream(i)
-		if err != nil {
-			panic(err)
-		}
-		if stream.IsAudio() {
-			return stream
-		}
-	}
-	return nil
-}
-
 func videoSender(videoTrack *webrtc.Track) func(*gmf.Packet) {
 	packets := make(chan *gmf.Packet, 10)
 	go func() {
